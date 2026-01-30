@@ -12,6 +12,10 @@ import androidx.compose.ui.unit.dp
 // 确保导入了刚才建立的组件
 import com.example.myfirstapp.ui.components.IntentionCard
 
+import androidx.compose.ui.text.font.FontWeight
+
+// ui/screens/QuestionCategoryScreen.kt
+
 @Composable
 fun QuestionCategoryScreen(onCategoryClick: (String) -> Unit) {
     val categories = listOf("出国留学", "保研考研", "校招社招", "学校社团")
@@ -19,7 +23,13 @@ fun QuestionCategoryScreen(onCategoryClick: (String) -> Unit) {
     val colors = listOf(Color(0xFF64B5F6), Color(0xFFFFB74D), Color(0xFF81C784), Color(0xFFBA68C8))
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("选择专业题库", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 16.dp))
+        // 这里的标题也要统一
+        Text(
+            text = "选择专业题库",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(bottom = 20.dp)
+        )
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -27,10 +37,11 @@ fun QuestionCategoryScreen(onCategoryClick: (String) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(categories.size) { index ->
+                // 调用统一的 IntentionCard，不要在外面包一层加粗的 Provider
                 IntentionCard(
-                    title = categories[index],   // 参数名要对准
+                    title = categories[index],
                     icon = icons[index],
-                    color = colors[index],       // 参数名要对准
+                    color = colors[index],
                     onClick = { onCategoryClick(categories[index]) }
                 )
             }

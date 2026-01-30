@@ -29,11 +29,31 @@ fun QuestionListScreen(
         LazyColumn(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
             items(questionsOnPage) { question ->
                 ListItem(
-                    headlineContent = { Text("第 ${question.id} 题：${question.title}") },
-                    supportingContent = { Text("难度：${question.difficulty}  |  通过率：${question.passRate}") },
-                    leadingContent = { Text("${question.id}", color = Color(0xFF00C091), fontWeight = FontWeight.Bold) }
+                    headlineContent = {
+                        Text(
+                            text = "第 ${question.id} 题：${question.title}",
+                            style = MaterialTheme.typography.bodyLarge, // 统一为主体大号字体
+                            fontWeight = FontWeight.SemiBold,          // 增加一点粗细
+                            color = Color(0xFF333333)
+                        )
+                    },
+                    supportingContent = {
+                        Text(
+                            text = "难度：${question.difficulty}  |  通过率：${question.passRate}",
+                            style = MaterialTheme.typography.bodySmall, // 统一为辅助小号字体
+                            color = Color.Gray
+                        )
+                    },
+                    leadingContent = {
+                        Text(
+                            text = "${question.id}",
+                            style = MaterialTheme.typography.titleMedium, // 统一序号字体
+                            color = Color(0xFF00C091),
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
                 )
-                HorizontalDivider(thickness = 0.5.dp, color = Color.LightGray)
+                HorizontalDivider(thickness = 0.5.dp, color = Color(0xFFEEEEEE))
             }
         }
 

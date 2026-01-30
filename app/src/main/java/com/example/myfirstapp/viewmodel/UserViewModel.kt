@@ -172,4 +172,30 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
             aiCompanies = "分析出错，请检查网络或简历清晰度"
         }
     }
+
+    // UserViewModel.kt 内部
+
+    fun deleteResume() {
+        // 1. 清除内存中的数据
+        resumeUri = null
+        aiScore = "0"
+        aiCompanies = ""
+        aiGap = ""
+        aiChartData = listOf(0f, 0f, 0f, 0f, 0f)
+        aiDimensions = listOf("专业技能", "项目经验", "学历背景", "沟通能力", "行业匹配")
+
+        // 2. 删除本地物理文件
+        val file = File(getApplication<Application>().filesDir, "my_resume.jpg")
+        if (file.exists()) file.delete()
+
+        // 3. 清除 SharedPreferences 缓存
+        prefs.edit().apply {
+            remove("resume_uri")
+            remove("ai_score")
+            remove("ai_companies")
+            remove("ai_gap")
+            remove("ai_chart_data")
+            remove("ai_dimensions")
+        }.apply()
+    }
 }

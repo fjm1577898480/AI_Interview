@@ -24,18 +24,43 @@ fun ProfileSectionCard(title: String, content: @Composable ColumnScope.() -> Uni
     }
 }
 
+// 在 ui/components/CommonComponents.kt 中
 @Composable
-fun IntentionCard(title: String, icon: ImageVector, color: Color, onClick: () -> Unit = {}) {
+fun IntentionCard(
+    title: String,
+    icon: ImageVector,
+    color: Color,
+    onClick: () -> Unit
+) {
     Card(
-        modifier = Modifier.fillMaxWidth().height(140.dp).clickable { onClick() },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(140.dp)
+            .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(imageVector = icon, contentDescription = null, tint = color, modifier = Modifier.size(40.dp))
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(40.dp)
+            )
             Spacer(modifier = Modifier.height(12.dp))
-            Text(text = title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(
+                text = title,
+                // 这里是关键：确保 fontWeight 与意向页保持一致
+                // 如果觉得太粗，就把 FontWeight.Bold 改为 FontWeight.SemiBold
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp
+            )
         }
     }
 }

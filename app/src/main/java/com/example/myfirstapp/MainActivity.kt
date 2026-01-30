@@ -74,7 +74,6 @@ fun MainAppContainer(viewModel: UserViewModel) {
                         3 -> ProfileScreen(
                             viewModel = viewModel,
                             onEditClick = { currentScreen = "edit_profile" },
-                            onUploadClick = { photoPickerLauncher.launch("image/*") },
                             onImageClick = { fullScreenImageUri = viewModel.resumeUri }
                         )
                     }
