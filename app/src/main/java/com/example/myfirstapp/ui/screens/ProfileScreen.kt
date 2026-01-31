@@ -29,25 +29,47 @@ import com.example.myfirstapp.viewmodel.UserViewModel
 @Composable
 fun ProfileScreen(
     viewModel: UserViewModel,
+
+    // 点击后会执行一段编辑逻辑
     onEditClick: () -> Unit,
+
+    // 点击后执行一段图片逻辑
     onImageClick: () -> Unit
 ) {
+    // 定义上下文变量
     val context = LocalContext.current
+
+    // 定义”是否正在分析“变量
     var isAnalyzing by remember { mutableStateOf(false) }
+
+    // 定义“是否展示删除对话框”变量
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     // 图片选择器：用于上传或更新简历
     val photoPickerLauncher = rememberLauncherForActivityResult(
+        // 定义一份契约，要从系统相册拉起图片
         contract = ActivityResultContracts.GetContent()
-    ) { uri ->
+
+
+    ) {
+        // 给流进来的数据起个代号叫uri
+        uri ->
+        // 这是一个逻辑式，如果uri不为空，则执行后面逻辑
         uri?.let { viewModel.saveResumeUri(it) }
     }
 
     // 雷达图数据动画
-    val animatedData = viewModel.aiChartData.map { target ->
+    val animatedData = viewModel.aiChartData.map {
+        // 输入
+        target ->
         animateFloatAsState(
+            // 最终目标值
             targetValue = target,
+
+            // tween表示补间动画，给定初试和结束状态，自动补齐中间，补齐时间为1秒
             animationSpec = tween(1000),
+
+            // 起一个别名
             label = "radarAnimation"
         ).value
     }
@@ -56,7 +78,11 @@ fun ProfileScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF8F8F8))
+
+            // 保证往下滑在松开手的时候不会回到页面顶端
             .verticalScroll(rememberScrollState())
+
+            // 上下左右都间距 16像素
             .padding(16.dp)
     ) {
         // 1. 个人信息头部
@@ -67,21 +93,30 @@ fun ProfileScreen(
                 .clickable { onEditClick() },
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // 头像容器
             Box(
                 modifier = Modifier
                     .size(64.dp)
+
+                    // 圆形容器
                     .clip(CircleShape)
                     .background(Color(0xFFE0E0E0)),
                 contentAlignment = Alignment.Center
             ) {
                 if (viewModel.userAvatarUri != null) {
+
+                    // 给一个网址就能自动生图
                     AsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(viewModel.userAvatarUri)
+
+                            // 渐变的显示出来
                             .crossfade(true)
                             .build(),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
+
+                        // 比例不变，撑满全框
                         contentScale = ContentScale.Crop
                     )
                 } else {
@@ -89,6 +124,7 @@ fun ProfileScreen(
                 }
             }
             Spacer(modifier = Modifier.width(16.dp))
+
             Column {
                 Text(text = viewModel.userName.ifEmpty { "超级面试者" }, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Text(text = viewModel.signature.ifEmpty { "点击修改个人信息" }, fontSize = 12.sp, color = Color.Gray)
@@ -114,6 +150,8 @@ fun ProfileScreen(
                     IconButton(
                         onClick = { showDeleteDialog = true },
                         modifier = Modifier
+
+                            // 从上到下：Top -> Bottom 从左到右： Start -> End
                             .align(Alignment.TopEnd)
                             .padding(8.dp)
                             .background(Color.Black.copy(0.5f), CircleShape)
@@ -125,6 +163,8 @@ fun ProfileScreen(
 
                 // 更新按钮
                 TextButton(
+
+                    // 拉起相册，只留下前缀为image的文件，剔除视频等其他文件
                     onClick = { photoPickerLauncher.launch("image/*") },
                     modifier = Modifier.align(Alignment.End)
                 ) {
@@ -138,6 +178,8 @@ fun ProfileScreen(
                     onClick = { photoPickerLauncher.launch("image/*") },
                     modifier = Modifier.fillMaxWidth().height(120.dp),
                     shape = RoundedCornerShape(8.dp),
+
+                    // 自定义边框，厚度为1的浅灰色边框
                     border = BorderStroke(1.dp, Color.LightGray)
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -153,6 +195,8 @@ fun ProfileScreen(
 
         // 3. AI 能力画像（如果没简历，这里显示默认状态）
         ProfileSectionCard("AI能力画像") {
+
+            // Row：里面的内容左右分布
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
                 Text("综合竞争力", color = Color.Gray)
                 Text(viewModel.aiScore, fontSize = 36.sp, fontWeight = FontWeight.ExtraBold, color = if(viewModel.resumeUri != null) Color(0xFF00C091) else Color.LightGray)
@@ -199,8 +243,13 @@ fun ProfileScreen(
 
     // 确认删除弹窗
     if (showDeleteDialog) {
+
+        // 警告弹窗
         AlertDialog(
+
+            // 当用户不点击“确认删除”，点击其他地方（如阴影）时，取消删除
             onDismissRequest = { showDeleteDialog = false },
+
             title = { Text("确认删除简历？") },
             text = { Text("删除后简历图片及相关的AI评分、建议将全部被清除。") },
             confirmButton = {

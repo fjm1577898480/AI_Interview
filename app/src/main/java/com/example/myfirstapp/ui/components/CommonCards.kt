@@ -13,6 +13,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+
+/**
+ * 个人资料分区卡片
+ */
 @Composable
 fun ProfileSectionCard(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(12.dp)) {
@@ -24,7 +28,10 @@ fun ProfileSectionCard(title: String, content: @Composable ColumnScope.() -> Uni
     }
 }
 
-// 在 ui/components/CommonComponents.kt 中
+
+/**
+ * 发展意向卡片
+ */
 @Composable
 fun IntentionCard(
     title: String,
@@ -58,7 +65,7 @@ fun IntentionCard(
                 // 这里是关键：确保 fontWeight 与意向页保持一致
                 // 如果觉得太粗，就把 FontWeight.Bold 改为 FontWeight.SemiBold
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 fontSize = 16.sp
             )
         }

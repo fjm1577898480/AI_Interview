@@ -31,7 +31,10 @@ fun IntentionScreen() {
         IntentionOption("学校社团", Icons.Default.Groups, Color(0xFFBA68C8))
     )
 
+    // Column 意味着把里面的组件按列排布
     Column(
+
+        // 修饰Column容器
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
@@ -43,12 +46,19 @@ fun IntentionScreen() {
             modifier = Modifier.padding(bottom = 20.dp)
         )
 
-        // 使用网格布局，每行 2 个卡片
+        // 使用网格布局（懒加载），不会一开始就全部画出内部组件，而是先画出当前屏幕里面那几个，划走一个再画一个
         LazyVerticalGrid(
+            // 固定只有两列
             columns = GridCells.Fixed(2),
+
+            // 水平间距12
             horizontalArrangement = Arrangement.spacedBy(12.dp),
+
+            // 垂直间距12
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+
+            // 类比java中的for循环，遍历options数组，将每一个元素替换到IntentionCard()的括号中
             items(options) { option ->
                 IntentionCard(option)
             }
@@ -57,14 +67,22 @@ fun IntentionScreen() {
 }
 
 @Composable
+
+// 类比java方法内的参数，变量名：数据类型
 fun IntentionCard(option: IntentionOption) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .height(140.dp)
             .clickable { /* 点击逻辑留空 */ },
+
+        // 圆角边框
         shape = RoundedCornerShape(12.dp),
+
+        // 默认卡片颜色
         colors = CardDefaults.cardColors(containerColor = Color.White),
+
+        // 设置阴影
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(
@@ -73,12 +91,22 @@ fun IntentionCard(option: IntentionOption) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
+                // 使用矢量图形，边界永远不会出现马赛克
                 imageVector = option.icon,
+
+                // 为视力障碍用户设计，点击图标会读出此内容
                 contentDescription = null,
+
+                // 图标颜色
                 tint = option.color,
+
+                // 设置宽度与高度
                 modifier = Modifier.size(40.dp)
             )
+
+            // 间隔标签与文本
             Spacer(modifier = Modifier.height(12.dp))
+
             Text(
                 text = option.title,
                 fontWeight = FontWeight.Medium,

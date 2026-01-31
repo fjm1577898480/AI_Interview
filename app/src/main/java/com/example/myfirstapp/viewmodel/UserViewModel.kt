@@ -181,10 +181,14 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
         aiScore = "0"
         aiCompanies = ""
         aiGap = ""
+
+        // 定义一个列表，其中5个值全为0
         aiChartData = listOf(0f, 0f, 0f, 0f, 0f)
         aiDimensions = listOf("专业技能", "项目经验", "学历背景", "沟通能力", "行业匹配")
 
         // 2. 删除本地物理文件
+
+        // 获取当前APP的实例，创建一个名为“my_resume.jpg”的文件
         val file = File(getApplication<Application>().filesDir, "my_resume.jpg")
         if (file.exists()) file.delete()
 
