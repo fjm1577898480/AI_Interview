@@ -23,7 +23,16 @@ fun QuestionListScreen(
     val totalPages = 6
     val allQuestions = QuestionRepository.getQuestionsByCategory(category)
     // 根据页码过滤题目数据
-    val questionsOnPage = allQuestions.chunked(pageSize).getOrNull(currentPage - 1) ?: emptyList()
+    val questionsOnPage = allQuestions.
+
+    // 按照pageSize分页
+    chunked(pageSize).
+
+    // 判断是否为空值，，索引从currentPage - 1 开始算起
+    getOrNull(currentPage - 1)
+
+    // 如果（获取到的一页信息）真的获取到空值，那么就返回一个空列表
+    ?: emptyList()
 
     Column(modifier = Modifier.fillMaxSize()) {
         LazyColumn(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {

@@ -36,7 +36,12 @@ fun QuestionCategoryScreen(onCategoryClick: (String) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(categories.size) { index ->
+
+            // 循环count次数
+            items(categories.size) {
+
+                // index会从0加到categories.size-1
+                index ->
                 // 调用统一的 IntentionCard，不要在外面包一层加粗的 Provider
                 IntentionCard(
                     title = categories[index],

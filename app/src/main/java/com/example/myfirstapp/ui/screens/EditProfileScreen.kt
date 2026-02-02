@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
@@ -42,6 +43,37 @@ fun EditProfileScreen(viewModel: UserViewModel, onBack: () -> Unit) {
 
     var showCropDialog by remember { mutableStateOf(false) }
     var rawUri by remember { mutableStateOf<Uri?>(null) }
+    var showExitDialog by remember { mutableStateOf(false) }
+
+    // 拦截系统返回键
+    BackHandler {
+        showExitDialog = true
+    }
+
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            title = { Text("提示") },
+            text = { Text("信息未确认，是否退出") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showExitDialog = false
+                        onBack()
+                    }
+                ) {
+                    Text("退出", color = Color(0xFF00C091))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showExitDialog = false }
+                ) {
+                    Text("取消", color = Color.Gray)
+                }
+            }
+        )
+    }
 
     val photoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
