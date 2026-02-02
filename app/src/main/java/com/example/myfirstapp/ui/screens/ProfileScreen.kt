@@ -1,5 +1,6 @@
 package com.example.myfirstapp.ui.screens
 
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
@@ -26,6 +27,8 @@ import coil.request.ImageRequest
 import com.example.myfirstapp.ui.components.*
 import com.example.myfirstapp.viewmodel.UserViewModel
 
+import android.widget.Toast
+
 @Composable
 fun ProfileScreen(
     viewModel: UserViewModel,
@@ -38,6 +41,38 @@ fun ProfileScreen(
 ) {
     // 定义上下文变量
     val context = LocalContext.current
+
+    // 监听错误信息并弹出提示
+    // 改用 Dialog 展示详细错误信息，避免 Toast 显示不全
+    if (viewModel.errorMessage != null) {
+        val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+        AlertDialog(
+            onDismissRequest = { viewModel.errorMessage = null },
+            title = { Text("提示") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(viewModel.errorMessage ?: "未知错误")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.errorMessage = null }
+                ) {
+                    Text("关闭", color = Color(0xFF00C091))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(viewModel.errorMessage ?: ""))
+                        Toast.makeText(context, "错误信息已复制", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("复制信息", color = Color.Gray)
+                }
+            }
+        )
+    }
 
     // 定义”是否正在分析“变量
     var isAnalyzing by remember { mutableStateOf(false) }
@@ -238,6 +273,15 @@ fun ProfileScreen(
                 Text("开始 AI 简历分析")
             }
         }
+
+        // 诊断按钮
+        TextButton(
+            onClick = { viewModel.testApiConnection() },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+        ) {
+            Text("遇到问题？点击测试 API 连接", color = Color.Gray, fontSize = 12.sp)
+        }
+
         Spacer(modifier = Modifier.height(50.dp))
     }
 

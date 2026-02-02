@@ -13,8 +13,9 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
-
-
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONException
 /**
  * UserViewModel是一个可以根据需求收发数据的一个智能仓库
  *
@@ -43,6 +44,9 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
 
     // 在 UserViewModel 类内部，其他变量定义处添加
     var aiDimensions by mutableStateOf(decodeDimensions(prefs.getString("ai_dimensions", "专业技能,项目经验,学历背景,沟通能力,行业匹配")))
+    
+    // 错误信息状态，用于 UI 展示
+    var errorMessage by mutableStateOf<String?>(null)
 
     // 辅助工具函数：将存放在 Prefs 里的逗号分隔字符串转回列表
 
@@ -109,16 +113,28 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
         // 这里的map不再是java中的哈希表，而是一种函数，负责将原先列表中的每一个元素，按照一种函数映射成另一个元素
         data?.split(",")?.map { it.toFloatOrNull() ?: 0f } ?: listOf(0f,0f,0f,0f,0f)
 
+
+
+
+// ...
+
     fun startResumeAnalysis(context: Context, onComplete: () -> Unit) {
+        // 重置错误信息
+        errorMessage = null
+        
         viewModelScope.launch {
             try {
-
-                // resumeUri!!代表resumeUri绝对不是空字符串
-                val base64 = ImageUtils.uriToBase64(context, resumeUri!!)
-
-                // return@launch就是说退出当前（launch）协程
-                    ?: return@launch
-
+                errorMessage = "正在压缩图片..."
+                
+                // 切换到 IO 线程处理图片，防止 ANR
+                val base64 = withContext(Dispatchers.IO) {
+                    ImageUtils.uriToBase64(context, resumeUri!!)
+                }
+                
+                if (base64 == null) {
+                    errorMessage = "图片处理失败，请重试"
+                    return@launch
+                }
 
                 // 极其严格的 Prompt
                 val strictPrompt = """
@@ -138,7 +154,8 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
                 4. 评分：给出每个指标的评分（0-100）。
                 5. 岗位差距：如果没有识别到明确的求职意向或岗位，请在 gapToTarget 字段回答“请先在‘发展意向’中明确具体岗位”。
                 
-                必须返回以下格式的纯 JSON，不要包含任何 markdown 标识：
+                请忽略图片中的个人隐私信息（如电话、地址），只分析专业能力。
+                必须只返回以下格式的纯 JSON，绝对不要包含任何 markdown 标识（如 ```json），不要包含任何额外的解释文字或免责声明（例如“请注意...”）：
                 {
                   "isResume": true,
                   "industry": "行业名称",
@@ -148,116 +165,179 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
                   "suitableCompanies": "建议公司",
                   "gapToTarget": "差距分析"
                 }
-                
-                // 按照最小缩进格数删除前面的格子数
             """.trimIndent()
 
-                val request = ZhipuRequest(messages = listOf(ZhipuMessage("user", listOf(
-                    ZhipuContent("text", strictPrompt),
-                    ZhipuContent("image_url", image_url = ZhipuImageUrl("data:image/jpeg;base64,$base64"))
-                ))))
+                // 构建 Request 对象
+                // 1. 系统提示词：设定 AI 身份和输出格式
+                val systemMessage = ZhipuMessage("system", listOf(
+                    ZhipuContent("text", "你是一个简历分析助手。你必须忽略图片中的个人隐私信息（如电话、地址），只分析专业能力。你必须且只能返回 JSON 格式的数据。")
+                ))
 
+                // 2. 用户消息：先发图片，再发具体的指令
+                val userMessage = ZhipuMessage("user", listOf(
+                    ZhipuContent("image_url", image_url = ZhipuImageUrl("data:image/jpeg;base64,$base64")),
+                    ZhipuContent("text", strictPrompt)
+                ))
 
-                val resp = RetrofitClient.instance.analyzeResume("Bearer 38283e409b9e47c0aaf617524843ac78.iX1eeSzlsyMK0CEM", request)
+                val request = ZhipuRequest(messages = listOf(systemMessage, userMessage))
+
+                errorMessage = "正在上传并等待 AI 思考（可能需要1分钟）..."
+                
+                // 切换到 IO 线程发起网络请求
+                val resp = withContext(Dispatchers.IO) {
+                    RetrofitClient.instance.analyzeResume("Bearer ecbb5887d4f4427e90671235f7819f85.WxcOv5MWV45ydbgb", request)
+                }
 
                 // 解析返回状态码，一般在200~299之间算成功
-                if (resp.isSuccessful)
+                if (resp.isSuccessful) {
+                    errorMessage = "AI 分析完成，正在解析..."
+                    // 解析响应的主体内容
+                    val bodyString = resp.body()?.string()
+                    
+                    // 解析逻辑（如果在 parseAiResult 内部失败并抛出异常，会跳到下面的 catch 块）
+                    parseAiResult(bodyString)
+                    
+                    // 只有完全成功解析后，才清除错误信息
+                    errorMessage = null
+                } else {
+                    errorMessage = "AI 请求失败: Code ${resp.code()} - ${resp.errorBody()?.string()}"
+                }
 
-                // 解析响应的主体内容，如果不为空则转换成纯文本形式
-                    parseAiResult(resp.body()?.string())
-
-            } catch (e: Exception) { e.printStackTrace() }
+            } catch (t: Throwable) { // 捕获所有 Throwable，防止 OOM 等 Error 漏网
+                t.printStackTrace()
+                // 如果是 Timeout，给出更友好的提示
+                if (t.message?.contains("timeout", ignoreCase = true) == true) {
+                     errorMessage = "请求超时。可能是图片过大或网络拥堵，请重试。"
+                } else {
+                     errorMessage = "发生错误: ${t.javaClass.simpleName} - ${t.message}"
+                }
+            }
             finally { onComplete() }
         }
     }
 
 
+    fun testApiConnection() {
+        errorMessage = "正在测试 API 连接..."
+        viewModelScope.launch {
+            try {
+                // 构造极简请求
+                val request = ZhipuRequest(
+                    model = "glm-4-flash", // 尝试使用更轻量的模型
+                    messages = listOf(ZhipuMessage("user", listOf(
+                        ZhipuContent("text", "Ping")
+                    )))
+                )
+
+                val resp = RetrofitClient.instance.analyzeResume("Bearer ecbb5887d4f4427e90671235f7819f85.WxcOv5MWV45ydbgb", request)
+
+                if (resp.isSuccessful) {
+                    errorMessage = "连接成功！API 响应正常: ${resp.code()}"
+                } else {
+                    errorMessage = "连接失败: ${resp.code()} - ${resp.errorBody()?.string()}"
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                errorMessage = "连接异常: ${e.javaClass.simpleName} - ${e.message}"
+            }
+        }
+    }
+
     /**
      *
      * 解析返回来的json数据
-     *
-      */
+     * 注意：此方法会抛出异常，由调用者处理
+     *  */
     private fun parseAiResult(json: String?) {
-        try {
-            // 1. 提取 AI 返回的字符串内容
+        // 1. 提取 AI 返回的字符串内容
+        if (json == null) throw IllegalArgumentException("AI 返回内容为空")
 
-            // 将json字符串转换成其内容中的一堆键值对
-            val root = JSONObject(json!!)
+        // 将json字符串转换成其内容中的一堆键值对
+        val root = JSONObject(json)
 
-            // 层层获取，层层解析
-            val content = root.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
-
-            // 2. 将内容清洗并转为 JSON 对象
-            val obj = JSONObject(content.
-
-            // 保留”{“之后的内容
-            substringAfter("{").
-
-            // 保留”}“之前的内容
-            substringBeforeLast("}").
-
-            // $it是最后剩下的字符串，重新把它们包装在{}之中
-            let { "{$it}" })
-
-            // 3. 防糊弄逻辑：检查是否为简历
-
-
-            val isResume = obj.optBoolean("isResume",
-
-                // 如果AI没告诉我们isResume是不是简历，先默认按是处理
-                true)
-
-            if (!isResume) {
-                aiScore = "0"
-                aiCompanies = "分析失败：检测到图片非简历"
-                aiGap = "请重新上传清晰、真实的个人简历图片"
-                return
-            }
-
-            // 4. 解析基础得分与文字建议
-            aiScore = obj.optInt("score").toString()
-            aiCompanies = obj.optString("suitableCompanies")
-            aiGap = obj.optString("gapToTarget")
-
-            // 5. 【新增】解析动态维度名称 (Radar Labels)
-            val dimArray = obj.optJSONArray("dimensions")
-
-            // 在kotlin中，if-else可以直接返回一个值
-            val dimList = if (dimArray != null) {
-
-                // 将左侧数字映射成右边代码的下标，然后通过下标获取元素，循环获取完后，map会自动把遍历的那几个元素打包成一个列表，返回给dimList
-                (0 until 5).map { dimArray.getString(it) }
-            } else {
-                listOf("专业技能", "项目经验", "学历背景", "沟通能力", "行业匹配")
-            }
-            aiDimensions = dimList
-
-            // 6. 解析雷达图数据 (Radar Values)
-            val chartArray = obj.optJSONArray("chartData")
-            val valueList = if (chartArray != null) {
-                (0 until 5).map { chartArray.getDouble(it).toFloat() / 100f }
-            } else {
-                listOf(0f, 0f, 0f, 0f, 0f)
-            }
-            aiChartData = valueList
-
-            // 7. 持久化保存到本地，以便下次打开 App 还能看到
-            prefs.edit().apply {
-                putString("ai_score", aiScore)
-                putString("ai_companies", aiCompanies)
-                putString("ai_gap", aiGap)
-                putString("ai_dimensions", dimList.
-
-                // 将这个列表中的元素用","连接成一个长字符串
-                joinToString(",")) // 保存维度名
-                putString("ai_chart_data", valueList.joinToString(",")) // 保存数据点
-            }.apply()
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-            // 出错时给出提示信息
-            aiCompanies = "分析出错，请检查网络或简历清晰度"
+        // 检查是否有 error 字段（Zhipu AI 有时会返回错误信息）
+        if (root.has("error")) {
+            throw RuntimeException(root.optJSONObject("error")?.optString("message") ?: "未知 API 错误")
         }
+
+        // 层层获取，层层解析
+        val choices = root.optJSONArray("choices")
+        if (choices == null || choices.length() == 0) {
+            throw RuntimeException("AI 未返回有效选项")
+        }
+        
+        val content = choices.getJSONObject(0).getJSONObject("message").getString("content")
+
+        // 2. 将内容清洗并转为 JSON 对象
+        // 改进逻辑：寻找包含 "isResume" 关键字的最近的大括号，防止被前面的免责声明干扰
+        var cleanContent = content
+        val keyIndex = content.indexOf("\"isResume\"")
+        
+        if (keyIndex != -1) {
+            val startIndex = content.lastIndexOf("{", keyIndex)
+            val endIndex = content.lastIndexOf("}")
+            if (startIndex != -1 && endIndex != -1 && startIndex < endIndex) {
+                cleanContent = content.substring(startIndex, endIndex + 1)
+            } else {
+                 throw RuntimeException("无法定位 JSON 起止符号。原始内容：$content")
+            }
+        } else {
+            // 如果没找到 isResume，说明 AI 完全跑偏了，直接把原始内容抛出来以便调试
+            throw RuntimeException("AI 返回数据格式错误（未找到关键字段）。原始内容：$content")
+        }
+        
+        val obj = try {
+            JSONObject(cleanContent)
+        } catch (e: JSONException) {
+             throw RuntimeException("JSON 格式解析失败: ${e.message}。截取内容：$cleanContent")
+        }
+
+        // 3. 防糊弄逻辑：检查是否为简历
+        val isResume = obj.optBoolean("isResume", true)
+        
+        if (!isResume) {
+            // 设置 UI 状态
+            aiScore = "0"
+            aiCompanies = "分析失败：检测到图片非简历"
+            aiGap = "请重新上传清晰、真实的个人简历图片"
+            // 抛出异常以中断流程并显示 Toast
+            throw RuntimeException("AI 认为这张图片不是简历，请重新上传")
+        }
+
+        // 4. 解析基础得分与文字建议
+        aiScore = obj.optInt("score").toString()
+        aiCompanies = obj.optString("suitableCompanies")
+        aiGap = obj.optString("gapToTarget")
+
+        // 5. 【新增】解析动态维度名称 (Radar Labels)
+        val dimArray = obj.optJSONArray("dimensions")
+
+        // 在kotlin中，if-else可以直接返回一个值
+        val dimList = if (dimArray != null) {
+            // 将左侧数字映射成右边代码的下标，然后通过下标获取元素
+            (0 until 5).map { dimArray.getString(it) }
+        } else {
+            listOf("专业技能", "项目经验", "学历背景", "沟通能力", "行业匹配")
+        }
+        aiDimensions = dimList
+
+        // 6. 解析雷达图数据 (Radar Values)
+        val chartArray = obj.optJSONArray("chartData")
+        val valueList = if (chartArray != null) {
+            (0 until 5).map { chartArray.getDouble(it).toFloat() / 100f }
+        } else {
+            listOf(0f, 0f, 0f, 0f, 0f)
+        }
+        aiChartData = valueList
+
+        // 7. 持久化保存到本地，以便下次打开 App 还能看到
+        prefs.edit().apply {
+            putString("ai_score", aiScore)
+            putString("ai_companies", aiCompanies)
+            putString("ai_gap", aiGap)
+            putString("ai_dimensions", dimList.joinToString(",")) // 保存维度名
+            putString("ai_chart_data", valueList.joinToString(",")) // 保存数据点
+        }.apply()
     }
 
     // UserViewModel.kt 内部
