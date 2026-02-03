@@ -113,7 +113,7 @@ fun MainAppContainer(viewModel: UserViewModel) {
                 "edit_profile" -> EditProfileScreen(viewModel) { currentScreen = "main" }
                 "company_search" -> {
                     BackHandler { currentScreen = "main" }
-                    CompanySearchScreen { currentScreen = "main" }
+                    CompanySearchScreen(onBack = { currentScreen = "main" })
                 }
                 "question_list" -> {
                     BackHandler { currentScreen = "main" }

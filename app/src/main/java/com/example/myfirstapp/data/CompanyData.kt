@@ -1,6 +1,6 @@
 package com.example.myfirstapp.data
 
-import com.example.myfirstapp.ui.screens.Company
+import com.example.myfirstapp.data.model.Company
 
 object CompanyData {
     val industries = listOf(
@@ -362,37 +362,32 @@ object CompanyData {
 
         // 自动填充至每个行业100条数据 (使用真实逻辑补充)
         return industries.associateWith { industry ->
-            val existingNames = realData[industry] ?: emptyList()
-            val fullList = existingNames.toMutableList()
+            // 关键修复：先对原始数据去重，防止 LazyColumn 因 key 重复而崩溃
+            val existingNames = realData[industry]?.distinct() ?: emptyList()
+            // 使用 MutableSet 来存储，既能保持去重，又能快速查找
+            val fullSet = LinkedHashSet(existingNames)
+            val baseList = existingNames.ifEmpty { listOf("$industry 行业知名企业") }
             
-            // 如果不足100，使用更真实的命名规则补充，尽量避免"No.X"
-            // 这里为了保证用户要求的"真实"，我们尽可能提供了大量真实数据。
-            // 如果仍不足，我们循环使用已有真实数据加上分公司/分部后缀，
-            // 或者使用行业通用的真实后缀生成看起来非常真实的名字。
             val suffixes = listOf("分公司", "研发中心", "技术部", "营销中心", "办事处", "控股子公司", "集团")
             var suffixIndex = 0
             var nameIndex = 0
             
-            while (fullList.size < 100) {
-                // 循环使用已有真实大厂名字 + 后缀，模拟真实的分支机构
-                // 例如：腾讯 -> 腾讯分公司，腾讯研发中心
-                if (existingNames.isNotEmpty()) {
-                    val baseName = existingNames[nameIndex % existingNames.size]
-                    val suffix = suffixes[suffixIndex % suffixes.size]
-                    fullList.add("$baseName$suffix")
-                    
-                    nameIndex++
-                    if (nameIndex % existingNames.size == 0) {
-                        suffixIndex++
-                    }
-                } else {
-                    // 兜底（理论上不应触发，因为上面都填了数据）
-                    fullList.add("$industry 行业知名企业 No.${fullList.size + 1}")
+            while (fullSet.size < 100) {
+                // 循环使用已有真实大厂名字 + 后缀
+                val baseName = baseList[nameIndex % baseList.size]
+                val suffix = suffixes[suffixIndex % suffixes.size]
+                val newName = if (baseName.contains("No.")) "$baseName ${fullSet.size + 1}" else "$baseName$suffix"
+                
+                fullSet.add(newName)
+                
+                nameIndex++
+                if (nameIndex % baseList.size == 0) {
+                    suffixIndex++
                 }
             }
             
             // 转换为 Company 对象并按拼音首字母排序
-            fullList.map { name ->
+            fullSet.map { name ->
                 Company(name, getPinyinFirstLetter(name))
             }.sortedBy { it.pinyinFirstLetter }
         }

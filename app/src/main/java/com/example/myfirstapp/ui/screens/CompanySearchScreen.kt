@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,31 +27,41 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 import com.example.myfirstapp.data.CompanyData
+import com.example.myfirstapp.data.model.Company
+import com.example.myfirstapp.data.model.CompanyListItem
+import com.example.myfirstapp.ui.viewmodels.CompanySearchViewModel
 
-import androidx.compose.foundation.lazy.rememberLazyListState
-
-// 数据模型：包含拼音首字母用于排序
-data class Company(val name: String, val pinyinFirstLetter: Char)
+import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CompanySearchScreen(onBack: () -> Unit) {
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedIndustry by remember { mutableStateOf<String?>(null) }
-    
-    // 获取行业和公司数据
+fun CompanySearchScreen(
+    onBack: () -> Unit,
+    viewModel: CompanySearchViewModel = viewModel()
+) {
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val selectedIndustry by viewModel.selectedIndustry.collectAsState()
+    val uiList by viewModel.uiList.collectAsState()
+
+    // 获取行业数据
     val industries = remember { CompanyData.industries }
-    val allCompanies = remember { CompanyData.getCompanyData() }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { 
+                title = {
                     TextField(
                         value = searchQuery,
-                        onValueChange = { searchQuery = it },
+                        onValueChange = { viewModel.onSearchQueryChanged(it) },
                         placeholder = { Text("搜索公司...", color = Color.Gray) },
-                        leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null, tint = Color.Gray) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = Color.Gray
+                            )
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(end = 16.dp), // 移除了固定高度，防止文字被遮挡
@@ -92,9 +103,9 @@ fun CompanySearchScreen(onBack: () -> Unit) {
                     val isSelected = selectedIndustry == industry
                     FilterChip(
                         selected = isSelected,
-                        onClick = { 
+                        onClick = {
                             // 点击已选中的标签则折叠（取消选中），否则选中
-                            selectedIndustry = if (isSelected) null else industry 
+                            viewModel.onIndustrySelected(if (isSelected) null else industry)
                         },
                         label = { Text(industry) },
                         colors = FilterChipDefaults.filterChipColors(
@@ -113,7 +124,7 @@ fun CompanySearchScreen(onBack: () -> Unit) {
                     )
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(8.dp))
 
             // 公司列表（使用 Crossfade 实现平滑切换，同时解决滚动位置重置问题）
@@ -121,56 +132,74 @@ fun CompanySearchScreen(onBack: () -> Unit) {
                 targetState = selectedIndustry,
                 label = "CompanyListTransition"
             ) { industry ->
-                if (industry == null) {
+                // UI 逻辑大大简化，只负责根据 viewModel 提供的数据进行渲染
+
+                if (industry == null && searchQuery.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("请选择上方行业标签查看知名企业", color = Color.Gray)
                     }
-                } else {
-                    // 为每个行业创建独立的 ListState，保证切换时位置在顶部
-                    val listState = rememberLazyListState()
-                    
-                    // 计算当前行业的显示数据
-                    val displayCompanies = remember(industry, searchQuery) {
-                        val list = allCompanies[industry] ?: emptyList()
-                        if (searchQuery.isNotEmpty()) {
-                            list.filter { it.name.contains(searchQuery, ignoreCase = true) }
-                                .sortedBy { it.pinyinFirstLetter }
-                        } else {
-                            list // 已经是排好序的
-                        }
+                } else if (uiList.isEmpty() && searchQuery.isNotEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("未找到相关企业", color = Color.Gray)
                     }
+                } else if (uiList.isEmpty() && industry != null) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("该分类下暂无收录数据", color = Color.Gray)
+                    }
+                } else {
+                    // 使用 key(industry) 强制重新创建 LazyListState 和 LazyColumn
+                    // 这样可以彻底避免"旧滚动位置应用到新列表"导致的闪烁问题
+                    key(industry) {
+                        val listState = rememberLazyListState()
 
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 20.dp)
-                    ) {
-                        if (displayCompanies.isEmpty()) {
-                            item {
-                                Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                                    Text("该分类下暂无收录数据", color = Color.Gray)
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = 20.dp)
+                        ) {
+                            items(
+                                items = uiList,
+                                key = {
+                                    when (it) {
+                                        is CompanyListItem.Header -> it.key
+                                        is CompanyListItem.Item -> it.key
+                                    }
+                                },
+                                contentType = {
+                                    when (it) {
+                                        is CompanyListItem.Header -> "header"
+                                        is CompanyListItem.Item -> "company"
+                                    }
                                 }
-                            }
-                        } else {
-                            // 按首字母分组显示
-                            val grouped = displayCompanies.groupBy { it.pinyinFirstLetter }
-                            
-                            grouped.toSortedMap().forEach { (letter, companies) ->
-                                item(key = "header_$letter") {
-                                    Text(
-                                        text = letter.toString(),
-                                        color = Color.Gray,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp)
-                                    )
-                                }
-                                // 添加 key 优化滑动性能
-                                items(companies, key = { "${industry}_${it.name}" }) { company ->
-                                    CompanyItemCard(company)
+                            ) { item ->
+                                when (item) {
+                                    is CompanyListItem.Header -> {
+                                        Text(
+                                            text = item.title,
+                                            color = if (industry == null) Color.Black else Color.Gray,
+                                            fontSize = if (industry == null) 16.sp else 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier
+                                                .padding(
+                                                    vertical = if (industry == null) 12.dp else 8.dp,
+                                                    horizontal = 4.dp
+                                                )
+                                                .let {
+                                                    if (industry == null) it.background(
+                                                        Color(
+                                                            0xFFF8F8F8
+                                                        )
+                                                    ).fillMaxWidth() else it
+                                                }
+                                        )
+                                    }
+
+                                    is CompanyListItem.Item -> {
+                                        CompanyItemCard(item.company)
+                                    }
                                 }
                             }
                         }
@@ -178,8 +207,9 @@ fun CompanySearchScreen(onBack: () -> Unit) {
                 }
             }
         }
+        }
     }
-}
+
 
 @Composable
 fun CompanyItemCard(company: Company) {
