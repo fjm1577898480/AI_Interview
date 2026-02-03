@@ -3,7 +3,9 @@ package com.example.myfirstapp.data.model
 // 智谱标准请求体
 data class ZhipuRequest(
     val model: String = "glm-4v", // 使用具备视觉能力的模型
-    val messages: List<ZhipuMessage>
+    val messages: List<ZhipuMessage>,
+    val max_tokens: Int? = null,   // 改为可空，如果不传则使用默认值
+    val temperature: Float? = null // 改为可空
 )
 
 data class ZhipuMessage(

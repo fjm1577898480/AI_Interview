@@ -47,6 +47,9 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
     
     // 错误信息状态，用于 UI 展示
     var errorMessage by mutableStateOf<String?>(null)
+    
+    // 分析状态，防止重复点击
+    var isAnalyzing by mutableStateOf(false)
 
     // 辅助工具函数：将存放在 Prefs 里的逗号分隔字符串转回列表
 
@@ -119,6 +122,10 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
 // ...
 
     fun startResumeAnalysis(context: Context, onComplete: () -> Unit) {
+        // 防止重复点击
+        if (isAnalyzing) return
+        isAnalyzing = true
+        
         // 重置错误信息
         errorMessage = null
         
@@ -155,7 +162,12 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
                 5. 岗位差距：如果没有识别到明确的求职意向或岗位，请在 gapToTarget 字段回答“请先在‘发展意向’中明确具体岗位”。
                 
                 请忽略图片中的个人隐私信息（如电话、地址），只分析专业能力。
-                必须只返回以下格式的纯 JSON，绝对不要包含任何 markdown 标识（如 ```json），不要包含任何额外的解释文字或免责声明（例如“请注意...”）：
+                必须且只能返回纯 JSON 格式数据，不要包含任何 markdown 标识（如 ```json），不要包含任何额外的解释文字或免责声明。
+                
+                【特别注意】chartData 字段必须是纯数字数组，绝对不要在数组里写文字描述！
+                错误示例：["熟悉Java", "了解Python"...]
+                正确示例：[85, 90, 75, 60, 80]
+
                 {
                   "isResume": true,
                   "industry": "行业名称",
@@ -168,18 +180,23 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
             """.trimIndent()
 
                 // 构建 Request 对象
-                // 1. 系统提示词：设定 AI 身份和输出格式
-                val systemMessage = ZhipuMessage("system", listOf(
-                    ZhipuContent("text", "你是一个简历分析助手。你必须忽略图片中的个人隐私信息（如电话、地址），只分析专业能力。你必须且只能返回 JSON 格式的数据。")
-                ))
+                // 注意：glm-4v 等视觉模型可能对 system 角色支持不佳，且对 max_tokens 有限制
+                // 因此将 system 提示词合并到 user 提示词中，并调整参数
+                
+                val finalPrompt = "你是一个简历分析助手。你必须忽略图片中的个人隐私信息（如电话、地址），只分析专业能力。你必须且只能返回 JSON 格式的数据。\n\n$strictPrompt"
 
                 // 2. 用户消息：先发图片，再发具体的指令
                 val userMessage = ZhipuMessage("user", listOf(
                     ZhipuContent("image_url", image_url = ZhipuImageUrl("data:image/jpeg;base64,$base64")),
-                    ZhipuContent("text", strictPrompt)
+                    ZhipuContent("text", finalPrompt)
                 ))
 
-                val request = ZhipuRequest(messages = listOf(systemMessage, userMessage))
+                val request = ZhipuRequest(
+                    model = "glm-4v", // 换回 glm-4v，Flash 模型并发太低容易 429
+                    messages = listOf(userMessage),
+                    max_tokens = 2048, // 给予充足的 Token，防止截断
+                    temperature = 0.95f // 官方推荐值，增加多样性防止卡死
+                )
 
                 errorMessage = "正在上传并等待 AI 思考（可能需要1分钟）..."
                 
@@ -193,14 +210,24 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
                     errorMessage = "AI 分析完成，正在解析..."
                     // 解析响应的主体内容
                     val bodyString = resp.body()?.string()
+                    // 【调试】打印完整的原始响应数据到 Logcat
+                    android.util.Log.d("UserViewModel", "RAW_AI_RESPONSE: $bodyString")
                     
                     // 解析逻辑（如果在 parseAiResult 内部失败并抛出异常，会跳到下面的 catch 块）
-                    parseAiResult(bodyString)
+                    // 放到 Default 线程解析，避免阻塞主线程
+                    withContext(Dispatchers.Default) {
+                         parseAiResult(bodyString)
+                    }
                     
                     // 只有完全成功解析后，才清除错误信息
                     errorMessage = null
                 } else {
-                    errorMessage = "AI 请求失败: Code ${resp.code()} - ${resp.errorBody()?.string()}"
+                    val errorBody = resp.errorBody()?.string()
+                    if (resp.code() == 429) {
+                        errorMessage = "请求过于频繁，请稍后重试 (429)"
+                    } else {
+                        errorMessage = "AI 请求失败: Code ${resp.code()} - $errorBody"
+                    }
                 }
 
             } catch (t: Throwable) { // 捕获所有 Throwable，防止 OOM 等 Error 漏网
@@ -212,7 +239,10 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
                      errorMessage = "发生错误: ${t.javaClass.simpleName} - ${t.message}"
                 }
             }
-            finally { onComplete() }
+            finally { 
+                isAnalyzing = false
+                onComplete() 
+            }
         }
     }
 
@@ -226,7 +256,9 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
                     model = "glm-4-flash", // 尝试使用更轻量的模型
                     messages = listOf(ZhipuMessage("user", listOf(
                         ZhipuContent("text", "Ping")
-                    )))
+                    ))),
+                    max_tokens = 1024,
+                    temperature = 0.1f
                 )
 
                 val resp = RetrofitClient.instance.analyzeResume("Bearer ecbb5887d4f4427e90671235f7819f85.WxcOv5MWV45ydbgb", request)
@@ -269,21 +301,43 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
         val content = choices.getJSONObject(0).getJSONObject("message").getString("content")
 
         // 2. 将内容清洗并转为 JSON 对象
+        var cleanContent = content.trim()
+        
+        // 尝试更稳健的 Markdown 清洗逻辑
+        if (cleanContent.startsWith("```")) {
+            val firstLineEnd = cleanContent.indexOf("\n")
+            if (firstLineEnd != -1) {
+                // 只要有头，就先去掉头
+                cleanContent = cleanContent.substring(firstLineEnd + 1).trim()
+                
+                // 然后再尝试去掉尾巴
+                if (cleanContent.endsWith("```")) {
+                    cleanContent = cleanContent.substringBeforeLast("```").trim()
+                }
+            } else {
+                 // 只有头没有换行，说明内容极其短，可能是被截断了或者只有 ```
+                 if (cleanContent == "```") {
+                      throw RuntimeException("AI 返回内容为空（仅包含标记符），请重试。")
+                 }
+            }
+        }
+
         // 改进逻辑：寻找包含 "isResume" 关键字的最近的大括号，防止被前面的免责声明干扰
-        var cleanContent = content
-        val keyIndex = content.indexOf("\"isResume\"")
+        val keyIndex = cleanContent.indexOf("\"isResume\"")
         
         if (keyIndex != -1) {
-            val startIndex = content.lastIndexOf("{", keyIndex)
-            val endIndex = content.lastIndexOf("}")
+            val startIndex = cleanContent.lastIndexOf("{", keyIndex)
+            val endIndex = cleanContent.lastIndexOf("}")
             if (startIndex != -1 && endIndex != -1 && startIndex < endIndex) {
-                cleanContent = content.substring(startIndex, endIndex + 1)
+                cleanContent = cleanContent.substring(startIndex, endIndex + 1)
             } else {
-                 throw RuntimeException("无法定位 JSON 起止符号。原始内容：$content")
+                 throw RuntimeException("无法定位 JSON 起止符号。清洗后内容：$cleanContent")
             }
         } else {
-            // 如果没找到 isResume，说明 AI 完全跑偏了，直接把原始内容抛出来以便调试
-            throw RuntimeException("AI 返回数据格式错误（未找到关键字段）。原始内容：$content")
+            // 如果没找到 isResume，说明 AI 完全跑偏了，或者清洗逻辑把内容洗没了
+            // 用户要求查看完整内容，因此不再截断，直接抛出全部内容
+            android.util.Log.e("UserViewModel", "AI_CONTENT_PARSE_ERROR: $content")
+            throw RuntimeException("AI 返回数据格式错误。完整内容如下：\n$content")
         }
         
         val obj = try {
@@ -323,9 +377,24 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
 
         // 6. 解析雷达图数据 (Radar Values)
         val chartArray = obj.optJSONArray("chartData")
-        val valueList = if (chartArray != null) {
-            (0 until 5).map { chartArray.getDouble(it).toFloat() / 100f }
-        } else {
+        val valueList = try {
+            if (chartArray != null) {
+                (0 until 5).map { index ->
+                    // 兼容处理：AI 有时会返回 ["80", "90"] 这种字符串数组，或者混入非数字
+                    val rawValue = chartArray.opt(index)
+                    val floatValue = when (rawValue) {
+                        is Number -> rawValue.toFloat()
+                        is String -> rawValue.toFloatOrNull() ?: 0f // 尝试解析字符串，解析不了就给0
+                        else -> 0f
+                    }
+                    floatValue / 100f
+                }
+            } else {
+                listOf(0f, 0f, 0f, 0f, 0f)
+            }
+        } catch (e: Exception) {
+            // 如果 AI 返回的 chartData 格式完全崩坏（比如是一个长字符串描述），兜底为 0
+            e.printStackTrace()
             listOf(0f, 0f, 0f, 0f, 0f)
         }
         aiChartData = valueList

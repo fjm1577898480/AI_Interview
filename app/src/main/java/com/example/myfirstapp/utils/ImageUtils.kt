@@ -19,10 +19,10 @@ object ImageUtils {
                 BitmapFactory.decodeStream(input, null, options)
             }
 
-            // 2. 计算缩放比例：限制长边最大为 1280px (原 800)
-            // 800px 可能导致简历文字模糊，1280px 是一个平衡点
+            // 2. 计算缩放比例：限制长边最大为 1024px (原 1280)
+            // 降低分辨率有助于减少 Token 消耗和网络传输时间，防止 AI 响应截断
             var inSampleSize = 1
-            val maxDimension = 1280
+            val maxDimension = 1024
             if (options.outHeight > maxDimension || options.outWidth > maxDimension) {
                 val halfHeight: Int = options.outHeight / 2
                 val halfWidth: Int = options.outWidth / 2
