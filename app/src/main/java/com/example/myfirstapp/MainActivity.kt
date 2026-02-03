@@ -100,8 +100,12 @@ fun MainAppContainer(viewModel: UserViewModel) {
                         0 -> HomeContent(viewModel) { fullScreenImageUri = viewModel.resumeUri }
                         1 -> IntentionScreen { route -> currentScreen = route }
                         2 -> QuestionCategoryScreen { category ->
-                            selectedCategory = category
-                            currentScreen = "question_list"
+                            if (category == "校招社招") {
+                                currentScreen = "recruitment"
+                            } else {
+                                selectedCategory = category
+                                currentScreen = "question_list"
+                            }
                         }
                         3 -> ProfileScreen(
                             viewModel = viewModel,
@@ -111,6 +115,10 @@ fun MainAppContainer(viewModel: UserViewModel) {
                     }
                 }
                 "edit_profile" -> EditProfileScreen(viewModel) { currentScreen = "main" }
+                "recruitment" -> {
+                    BackHandler { currentScreen = "main" }
+                    RecruitmentScreen(onBack = { currentScreen = "main" })
+                }
                 "company_search" -> {
                     BackHandler { currentScreen = "main" }
                     CompanySearchScreen(onBack = { currentScreen = "main" })
