@@ -121,17 +121,19 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
 
 // ...
 
-    fun startResumeAnalysis(context: Context, onComplete: () -> Unit) {
-        // 防止重复点击
-        if (isAnalyzing) return
-        isAnalyzing = true
+    // 增加重试次数参数，默认不重试（0），最多重试 1 次
+    fun startResumeAnalysis(context: Context, retryCount: Int = 0, onComplete: () -> Unit) {
+        // 防止重复点击（仅在第一次调用时检查，重试时不检查）
+        if (retryCount == 0 && isAnalyzing) return
+        if (retryCount == 0) isAnalyzing = true
         
         // 重置错误信息
-        errorMessage = null
+        if (retryCount == 0) errorMessage = null
         
         viewModelScope.launch {
             try {
-                errorMessage = "正在压缩图片..."
+                if (retryCount == 0) errorMessage = "正在压缩图片..."
+                else errorMessage = "AI 返回格式有误，正在进行第 ${retryCount} 次重试..."
                 
                 // 切换到 IO 线程处理图片，防止 ANR
                 val base64 = withContext(Dispatchers.IO) {
@@ -143,47 +145,41 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                // 极其严格的 Prompt
                 val strictPrompt = """
-                你是一名资深的 HR 专家。请按以下流程严格执行：
-                1. 验证图片：如果图片内容不是个人简历，请将 isResume 设为 false，并结束分析。
-                2. 识别行业：根据简历内容判断所属行业（如：互联网、金融、教育等）。
-                3. 动态维度：针对该行业，提取 5 个最核心的评价指标（如程序员是：技术栈、算法、项目、学历、软实力）。
-                
-                【重要】其中“学历”维度的评分必须严格遵守以下标准：
-                - 博士：95-100分
-                - 硕士研究生：85-94分
-                - 985/211/双一流本科：75-84分
-                - 普通本科：60-74分
-                - 专科：40-59分
-                - 其他：40分以下
-                
-                4. 评分：给出每个指标的评分（0-100）。
-                5. 岗位差距：如果没有识别到明确的求职意向或岗位，请在 gapToTarget 字段回答“请先在‘发展意向’中明确具体岗位”。
-                
-                请忽略图片中的个人隐私信息（如电话、地址），只分析专业能力。
-                必须且只能返回纯 JSON 格式数据，不要包含任何 markdown 标识（如 ```json），不要包含任何额外的解释文字或免责声明。
-                
-                【特别注意】chartData 字段必须是纯数字数组，绝对不要在数组里写文字描述！
-                错误示例：["熟悉Java", "了解Python"...]
-                正确示例：[85, 90, 75, 60, 80]
+                # Role
+                You are a strict JSON generator. You analyze the resume image and return a JSON object.
 
+                # Rules
+                1. If image is NOT a resume, set "isResume": false.
+                2. Identify 5 key dimensions based on industry.
+                3. Score "Education" (学历) strictly:
+                   - PhD: 95-100
+                   - Master: 85-94
+                   - 985/211/Double First Class: 75-84
+                   - Regular Bachelor: 60-74
+                   - Junior College (专科): 40-59
+                   - Others: <40
+                4. Ignore private info (phone/address).
+                5. RETURN RAW JSON ONLY. NO MARKDOWN. NO COMMENTS.
+                6. **IMPORTANT**: All text values (industry, dimensions, suitableCompanies, gapToTarget) MUST be in Simplified Chinese (简体中文).
+
+                # Output Format
                 {
                   "isResume": true,
                   "industry": "行业名称",
-                  "score": 46666,
+                  "score": 85,
                   "dimensions": ["维度1", "维度2", "维度3", "维度4", "维度5"],
                   "chartData": [80, 70, 90, 60, 85],
-                  "suitableCompanies": "建议公司",
-                  "gapToTarget": "差距分析"
+                  "suitableCompanies": "推荐公司A, 推荐公司B",
+                  "gapToTarget": "差距分析内容..."
                 }
+                
+                IMPORTANT: "chartData" MUST be a number array (e.g. [80, 90]), NOT strings.
             """.trimIndent()
 
                 // 构建 Request 对象
-                // 注意：glm-4v 等视觉模型可能对 system 角色支持不佳，且对 max_tokens 有限制
-                // 因此将 system 提示词合并到 user 提示词中，并调整参数
-                
-                val finalPrompt = "你是一个简历分析助手。你必须忽略图片中的个人隐私信息（如电话、地址），只分析专业能力。你必须且只能返回 JSON 格式的数据。\n\n$strictPrompt"
+                // 简化 User Prompt，避免重复
+                val finalPrompt = strictPrompt
 
                 // 2. 用户消息：先发图片，再发具体的指令
                 val userMessage = ZhipuMessage("user", listOf(
@@ -219,10 +215,13 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
                          parseAiResult(bodyString)
                     }
                     
-                    // 只有完全成功解析后，才清除错误信息
+                    // 只有完全成功解析后，才清除错误信息，并结束分析状态
                     errorMessage = null
+                    isAnalyzing = false
+                    onComplete()
                 } else {
                     val errorBody = resp.errorBody()?.string()
+                    // 如果是 429 或其他服务器错误，也可以考虑重试（这里暂时简单处理）
                     if (resp.code() == 429) {
                         errorMessage = "请求过于频繁，请稍后重试 (429)"
                     } else {
@@ -230,19 +229,33 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-            } catch (t: Throwable) { // 捕获所有 Throwable，防止 OOM 等 Error 漏网
+            } catch (t: Throwable) { // 捕获所有 Throwable
                 t.printStackTrace()
-                // 如果是 Timeout，给出更友好的提示
-                if (t.message?.contains("timeout", ignoreCase = true) == true) {
-                     errorMessage = "请求超时。可能是图片过大或网络拥堵，请重试。"
+                
+                // 自动重试逻辑 (仅针对 JSON 解析错误或特定网络错误，且次数未用完)
+                val shouldRetry = retryCount < 1 && (
+                        t.message?.contains("JSON", ignoreCase = true) == true || 
+                        t.message?.contains("数据格式错误", ignoreCase = true) == true ||
+                        t.message?.contains("timeout", ignoreCase = true) == true
+                )
+
+                if (shouldRetry) {
+                    android.util.Log.w("UserViewModel", "AI 分析失败，尝试第 ${retryCount + 1} 次重试。原因: ${t.message}")
+                    startResumeAnalysis(context, retryCount + 1, onComplete)
                 } else {
-                     errorMessage = "发生错误: ${t.javaClass.simpleName} - ${t.message}"
+                    // 如果是 Timeout，给出更友好的提示
+                    if (t.message?.contains("timeout", ignoreCase = true) == true) {
+                         errorMessage = "请求超时。可能是图片过大或网络拥堵，请重试。"
+                    } else {
+                         errorMessage = "发生错误: ${t.javaClass.simpleName} - ${t.message}"
+                    }
+                    // 只有在不再重试时，才结束 loading 状态
+                    isAnalyzing = false
+                    onComplete()
                 }
             }
-            finally { 
-                isAnalyzing = false
-                onComplete() 
-            }
+            // finally 块被移除，因为重试需要保持 isAnalyzing = true
+            // 如果成功或最终失败，都会手动设置 isAnalyzing = false
         }
     }
 
@@ -284,15 +297,11 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
         // 1. 提取 AI 返回的字符串内容
         if (json == null) throw IllegalArgumentException("AI 返回内容为空")
 
-        // 将json字符串转换成其内容中的一堆键值对
         val root = JSONObject(json)
-
-        // 检查是否有 error 字段（Zhipu AI 有时会返回错误信息）
         if (root.has("error")) {
             throw RuntimeException(root.optJSONObject("error")?.optString("message") ?: "未知 API 错误")
         }
 
-        // 层层获取，层层解析
         val choices = root.optJSONArray("choices")
         if (choices == null || choices.length() == 0) {
             throw RuntimeException("AI 未返回有效选项")
@@ -300,50 +309,71 @@ class UserViewModel(application: Application) : AndroidViewModel(application) {
         
         val content = choices.getJSONObject(0).getJSONObject("message").getString("content")
 
-        // 2. 将内容清洗并转为 JSON 对象
+        // 2. 智能 JSON 提取算法
+        // 目标：找到包含 "isResume" 的最外层 JSON 对象
         var cleanContent = content.trim()
+        var finalJsonString: String? = null
         
-        // 尝试更稳健的 Markdown 清洗逻辑
+        // 简单清洗：去除 Markdown 标记
         if (cleanContent.startsWith("```")) {
             val firstLineEnd = cleanContent.indexOf("\n")
             if (firstLineEnd != -1) {
-                // 只要有头，就先去掉头
-                cleanContent = cleanContent.substring(firstLineEnd + 1).trim()
-                
-                // 然后再尝试去掉尾巴
-                if (cleanContent.endsWith("```")) {
-                    cleanContent = cleanContent.substringBeforeLast("```").trim()
+                cleanContent = cleanContent.substring(firstLineEnd + 1)
+            }
+            if (cleanContent.endsWith("```")) {
+                cleanContent = cleanContent.substring(0, cleanContent.length - 3)
+            }
+            cleanContent = cleanContent.trim()
+        }
+
+        // 如果清洗后直接是 JSON，尝试解析
+        try {
+            val testObj = JSONObject(cleanContent)
+            if (testObj.has("isResume")) {
+                finalJsonString = cleanContent
+            }
+        } catch (e: Exception) {
+            // 解析失败，说明可能包含杂质，继续尝试提取
+        }
+
+        // 如果直接解析失败，使用大括号平衡算法提取
+        if (finalJsonString == null) {
+            var braceCount = 0
+            var startIndex = -1
+            
+            for (i in cleanContent.indices) {
+                val char = cleanContent[i]
+                if (char == '{') {
+                    if (startIndex == -1) startIndex = i
+                    braceCount++
+                } else if (char == '}') {
+                    if (braceCount > 0) {
+                        braceCount--
+                        if (braceCount == 0 && startIndex != -1) {
+                            // 找到了一个完整的 JSON 块
+                            val potentialJson = cleanContent.substring(startIndex, i + 1)
+                            if (potentialJson.contains("\"isResume\"") || potentialJson.contains("isResume")) {
+                                finalJsonString = potentialJson
+                                break
+                            } else {
+                                // 这不是我们要的块，重置继续找（虽然一般只有一个 JSON）
+                                startIndex = -1
+                            }
+                        }
+                    }
                 }
-            } else {
-                 // 只有头没有换行，说明内容极其短，可能是被截断了或者只有 ```
-                 if (cleanContent == "```") {
-                      throw RuntimeException("AI 返回内容为空（仅包含标记符），请重试。")
-                 }
             }
         }
 
-        // 改进逻辑：寻找包含 "isResume" 关键字的最近的大括号，防止被前面的免责声明干扰
-        val keyIndex = cleanContent.indexOf("\"isResume\"")
-        
-        if (keyIndex != -1) {
-            val startIndex = cleanContent.lastIndexOf("{", keyIndex)
-            val endIndex = cleanContent.lastIndexOf("}")
-            if (startIndex != -1 && endIndex != -1 && startIndex < endIndex) {
-                cleanContent = cleanContent.substring(startIndex, endIndex + 1)
-            } else {
-                 throw RuntimeException("无法定位 JSON 起止符号。清洗后内容：$cleanContent")
-            }
-        } else {
-            // 如果没找到 isResume，说明 AI 完全跑偏了，或者清洗逻辑把内容洗没了
-            // 用户要求查看完整内容，因此不再截断，直接抛出全部内容
-            android.util.Log.e("UserViewModel", "AI_CONTENT_PARSE_ERROR: $content")
-            throw RuntimeException("AI 返回数据格式错误。完整内容如下：\n$content")
+        if (finalJsonString == null) {
+             android.util.Log.e("UserViewModel", "AI_CONTENT_PARSE_ERROR: $content")
+             throw RuntimeException("无法提取有效 JSON。原始内容：$content")
         }
         
         val obj = try {
-            JSONObject(cleanContent)
+            JSONObject(finalJsonString)
         } catch (e: JSONException) {
-             throw RuntimeException("JSON 格式解析失败: ${e.message}。截取内容：$cleanContent")
+             throw RuntimeException("JSON 格式解析失败: ${e.message}。提取内容：$finalJsonString")
         }
 
         // 3. 防糊弄逻辑：检查是否为简历
