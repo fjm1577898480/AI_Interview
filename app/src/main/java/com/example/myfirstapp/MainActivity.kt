@@ -98,7 +98,7 @@ fun MainAppContainer(viewModel: UserViewModel) {
                 "main" -> {
                     when (selectedTab) {
                         0 -> HomeContent(viewModel) { fullScreenImageUri = viewModel.resumeUri }
-                        1 -> IntentionScreen()
+                        1 -> IntentionScreen { route -> currentScreen = route }
                         2 -> QuestionCategoryScreen { category ->
                             selectedCategory = category
                             currentScreen = "question_list"
@@ -111,6 +111,10 @@ fun MainAppContainer(viewModel: UserViewModel) {
                     }
                 }
                 "edit_profile" -> EditProfileScreen(viewModel) { currentScreen = "main" }
+                "company_search" -> {
+                    BackHandler { currentScreen = "main" }
+                    CompanySearchScreen { currentScreen = "main" }
+                }
                 "question_list" -> {
                     BackHandler { currentScreen = "main" }
                     QuestionListScreen(currentPage, selectedCategory) { currentPage = it }

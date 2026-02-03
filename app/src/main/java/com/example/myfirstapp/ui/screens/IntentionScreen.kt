@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.sp
 data class IntentionOption(val title: String, val icon: ImageVector, val color: Color)
 
 @Composable
-fun IntentionScreen() {
+fun IntentionScreen(onNavigate: (String) -> Unit) {
     val options = listOf(
         IntentionOption("出国留学", Icons.Default.AirplaneTicket, Color(0xFF64B5F6)),
         IntentionOption("保研考研", Icons.Default.School, Color(0xFFFFB74D)),
@@ -60,7 +60,11 @@ fun IntentionScreen() {
 
             // 类比java中的for循环，遍历options数组，将每一个元素替换到IntentionCard()的括号中
             items(options) { option ->
-                IntentionCard(option)
+                IntentionCard(option, onClick = {
+                    if (option.title == "校招社招") {
+                        onNavigate("company_search")
+                    }
+                })
             }
         }
     }
@@ -69,12 +73,12 @@ fun IntentionScreen() {
 @Composable
 
 // 类比java方法内的参数，变量名：数据类型
-fun IntentionCard(option: IntentionOption) {
+fun IntentionCard(option: IntentionOption, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .height(140.dp)
-            .clickable { /* 点击逻辑留空 */ },
+            .clickable { onClick() },
 
         // 圆角边框
         shape = RoundedCornerShape(12.dp),
