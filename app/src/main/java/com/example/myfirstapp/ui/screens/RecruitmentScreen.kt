@@ -68,8 +68,8 @@ fun RecruitmentScreen(onBack: () -> Unit) {
                 when (selectedTab) {
                     0 -> PlaceholderScreen("面试问答题功能开发中...")
                     1 -> PlaceholderScreen("面试算法题功能开发中...")
-                    // 面经部分暂时清空
-                    2 -> PlaceholderScreen("面经功能开发中...")
+                    // 面经部分
+                    2 -> MianJingScreen()
                 }
             }
         }
